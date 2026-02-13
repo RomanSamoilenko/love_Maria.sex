@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <!-- Критически важно для Android: запрет зума, правильный масштаб -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#000000">
+    <title>💟💝</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&display=swap');
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            /* Изначально темный фон */
+            background-image: radial-gradient(circle at center, #1a0005 0%, #000000 80%);
+            font-family: 'Montserrat', sans-serif;
+            color: white;
+            /* Отключаем стандартные жесты браузера (зум, скролл) */
+            touch-action: none;
+            -webkit-user-select: none;
+            user-select: none;
+            transition: background-image 3s ease;
+        }
+
+        /* Состояние туннеля: фон становится светлее и прозрачнее */
+        body.tunnel-active {
+            background-image: radial-gradient(circle at center, #5e1b2e 0%, #1a0508 100%);
+        }
+
+        canvas {
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+            outline: none;
+        }
+
+        /* UI Контейнер */
+        .ui-container {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15vh 0 10vh 0;
+            /* Отступы под пальцы */
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        h1 {
+            font-size: clamp(2rem, 7vw, 3.5rem);
+            color: #ff3d68;
+            text-shadow: 0 0 20px rgba(255, 61, 104, 0.6);
+            margin: 0;
+            text-align: center;
+            pointer-events: auto;
+            opacity: 0.9;
+            padding: 0 20px;
+        }
+
+        .buttons {
+            display: flex;
+            flex-direction: column;
+            /* Вертикально для удобства на телефоне */
+            gap: 20px;
+            pointer-events: auto;
+            width: 80%;
+            max-width: 300px;
+        }
+
+        /* Кнопки оптимизированы под тачскрин */
+        .btn {
+            padding: 20px 0;
+            font-size: 1.2rem;
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            transition: transform 0.1s;
+            width: 100%;
+            -webkit-tap-highlight-color: transparent;
+            /* Убираем синий квадрат при тапе */
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        #yesBtn {
+            background: linear-gradient(45deg, #ff2a55, #ff7b9c);
+            color: white;
+            box-shadow: 0 0 20px rgba(255, 42, 85, 0.4);
+        }
+
+        #yesBtn:active {
+            transform: scale(0.95);
+        }
+
+        #noBtn {
+            background: rgba(255, 255, 255, 0.1);
+            color: #ff7b9c;
+            border: 1px solid rgba(255, 123, 156, 0.3);
+            backdrop-filter: blur(5px);
+        }
+
+        /* Экран успеха */
+        .success-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            /* Полупрозрачный фон, чтобы видеть туннель */
+            background: rgba(0, 0, 0, 0.3);
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            opacity: 0;
+            transition: opacity 1s;
+            pointer-events: none;
+        }
+
+        .success-overlay.visible {
+            opacity: 1;
+        }
+
+        .success-overlay h2 {
+            font-size: 3rem;
+            color: #ff3d68;
+            text-shadow: 0 0 20px rgba(255, 61, 104, 0.8);
+            margin-bottom: 10px;
+        }
+
+        .success-overlay p {
+            font-size: 1.2rem;
+            color: #fff;
+            opacity: 0.8;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="ui-container" id="ui">
+        <h1>Мы лучшая пара?</h1>
+        <div class="buttons">
+            <button class="btn" id="yesBtn">Да! 💝</button>
+            <button class="btn" id="noBtn">Нет</button>
+        </div>
+    </div>
+
+    <div class="success-overlay" id="successScreen">
+        <h2>💟</h2>
+        <p>Я люблю тебя!</p>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+
+    <script>
+        // Определение мобильного устройства
+        const isMobile = window.innerWidth < 768;
+
+        // --- 1. СЦЕНА THREE.JS ---
+        const scene = new THREE.Scene();
+        // Темный туман, который станет светлее при переходе
+        const fogColor = new THREE.Color(0x050102);
+        scene.fog = new THREE.FogExp2(fogColor, 0.012);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+        // Адаптивная камера: дальше на телефоне, чтобы сердце влезло
+        camera.position.z = isMobile ? 60 : 40;
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        document.body.appendChild(renderer.domElement);
+
+        // --- 2. ТЕКСТУРЫ СТРОГО 2 СМАЙЛИКА ---
+        function createEmojiTexture(emoji) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 128; canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+            ctx.font = '90px serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(emoji, 64, 64);
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        const textures = [
+            createEmojiTexture('💟'),
+            createEmojiTexture('💝')
+        ];
+
+        // --- 3. ГЕНЕРАЦИЯ СЕРДЦА ---
+        const heartGroup = new THREE.Group();
+        scene.add(heartGroup);
+
+        const particles = [];
+        const particleCount = isMobile ? 400 : 700; // Оптимизация для Android
+
+        for (let i = 0; i < particleCount; i++) {
+            // Формула сердца
+            const t = Math.random() * Math.PI * 2;
+            const x = 16 * Math.pow(Math.sin(t), 3);
+            const y = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t);
+            const z = (Math.random() - 0.5) * 10;
+
+            const u = Math.random();
+            const scaleFactor = Math.sqrt(u); // Заполнение внутренности
+
+            const material = new THREE.SpriteMaterial({
+                map: textures[i % 2], // Чередуем только 2 текстуры
+                transparent: true,
+                opacity: 0.9,
+                rotation: (Math.random() - 0.5) * 0.5
+            });
+
+            const sprite = new THREE.Sprite(material);
+
+            // Исходная позиция (компактное сердце)
+            const pos = new THREE.Vector3(x * scaleFactor, y * scaleFactor, z * scaleFactor);
+            sprite.position.copy(pos);
+            sprite.scale.set(0, 0, 0); // Для анимации появления
+
+            heartGroup.add(sprite);
+
+            particles.push({
+                sprite: sprite,
+                // Сохраняем контур сердца для формирования формы тоннеля
+                tunnelShapeX: x * 4, // Умножаем на 4, чтобы тоннель был широким
+                tunnelShapeY: y * 4,
+                originalZ: z,
+                phase: Math.random() * Math.PI * 2
+            });
+
+            // Анимация входа
+            gsap.to(sprite.scale, {
+                x: 1.5, y: 1.5,
+                duration: 1.5,
+                delay: i * 0.001,
+                ease: "back.out(1.7)"
+            });
+        }
+
+        // Поднимаем сердце чуть выше центра на мобильных (из-за кнопок)
+        heartGroup.position.y = isMobile ? 5 : 0;
+
+        // --- 4. ЛОГИКА АНИМАЦИИ И ТУННЕЛЯ ---
+        let isTunnelMode = false;
+        let tunnelSpeed = 0;
+        let mouseX = 0, mouseY = 0;
+
+        // Обработчик тачей и мыши
+        function onMove(e) {
+            const x = e.touches ? e.touches[0].clientX : e.clientX;
+            const y = e.touches ? e.touches[0].clientY : e.clientY;
+            mouseX = (x - window.innerWidth / 2) / 300;
+            mouseY = (y - window.innerHeight / 2) / 300;
+        }
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('touchmove', onMove, { passive: false });
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = Date.now() * 0.001;
+
+            if (!isTunnelMode) {
+                // РЕЖИМ 1: СЕРДЦЕ (Без пульсации)
+                // Плавное вращение от пальца/мыши
+                heartGroup.rotation.y += (mouseX - heartGroup.rotation.y) * 0.05;
+                heartGroup.rotation.x += (mouseY - heartGroup.rotation.x) * 0.05;
+
+                particles.forEach(p => {
+                    // Легкое парение на месте
+                    p.sprite.position.y += Math.sin(time * 2 + p.phase) * 0.02;
+                });
+
+            } else {
+                // РЕЖИМ 2: БЕСКОНЕЧНЫЙ ТУННЕЛЬ
+                if (tunnelSpeed < 1.0) tunnelSpeed += 0.01; // Плавный разгон
+
+                // Двигаем камеру вперед
+                camera.position.z -= tunnelSpeed;
+
+                // Вращаем сам тоннель для эффекта спирали
+                heartGroup.rotation.z -= 0.005;
+
+                // ЛОГИКА БЕСКОНЕЧНОСТИ
+                particles.forEach(p => {
+                    // Если частица осталась далеко позади камеры
+                    if (p.sprite.position.z > camera.position.z + 10) {
+                        // Перемещаем её далеко вперед
+                        p.sprite.position.z -= 500; // Длина сегмента туннеля
+                    }
+                });
+            }
+
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        // --- 5. UI И ВЗАИМОДЕЙСТВИЕ ---
+        const noBtn = document.getElementById('noBtn');
+        const yesBtn = document.getElementById('yesBtn');
+        const ui = document.getElementById('ui');
+        const successScreen = document.getElementById('successScreen');
+
+        // Функция перемещения кнопки "Нет"
+        function moveNoBtn() {
+            const margin = 20;
+            // Область перемещения
+            const maxX = window.innerWidth - noBtn.offsetWidth - margin;
+            const maxY = window.innerHeight - noBtn.offsetHeight - margin;
+
+            const x = margin + Math.random() * (maxX - margin * 2);
+            const y = margin + Math.random() * (maxY - margin * 2);
+
+            noBtn.style.position = 'fixed';
+            noBtn.style.left = x + 'px';
+            noBtn.style.top = y + 'px';
+
+            // Вибрация при попытке нажать (Android фишка)
+            if (navigator.vibrate) navigator.vibrate(50);
+        }
+
+        // Для Android: используем touchstart для мгновенной реакции
+        noBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault(); // Предотвращаем клик
+            moveNoBtn();
+        });
+        noBtn.addEventListener('mouseover', moveNoBtn); // Для ПК
+
+        yesBtn.addEventListener('click', () => {
+            // 1. Скрываем UI
+            gsap.to(ui, { opacity: 0, duration: 0.5, onComplete: () => ui.style.display = 'none' });
+
+            // 2. Показываем финальный текст
+            successScreen.style.display = 'flex';
+            setTimeout(() => successScreen.classList.add('visible'), 100);
+
+            // 3. Включаем режим туннеля
+            isTunnelMode = true;
+            document.body.classList.add('tunnel-active'); // Включаем светлый фон
+
+            // Меняем туман на более прозрачный/светлый
+            gsap.to(scene.fog, { density: 0.004, duration: 3 });
+            gsap.to(scene.fog.color, { r: 0.2, g: 0.05, b: 0.1, duration: 3 });
+
+            // 4. ТРАНСФОРМАЦИЯ ЧАСТИЦ В КОРИДОР
+            // Сбрасываем вращение группы
+            gsap.to(heartGroup.rotation, { x: 0, y: 0, z: 0, duration: 1 });
+
+            particles.forEach((p, i) => {
+                // Распределяем частицы вдоль оси Z перед камерой
+                // Текущая позиция камеры - (индекс * шаг)
+                const targetZ = camera.position.z - 20 - (i * 1.2);
+
+                gsap.to(p.sprite.position, {
+                    x: p.tunnelShapeX, // Расширяем до формы тоннеля
+                    y: p.tunnelShapeY,
+                    z: targetZ,        // Выстраиваем в длину
+                    duration: 2.5,
+                    ease: "power2.inOut"
+                });
+
+                // Делаем частицы крупнее и прозрачнее
+                gsap.to(p.sprite.scale, { x: 3, y: 3, duration: 2 });
+                gsap.to(p.sprite.material, { opacity: 0.6, duration: 2 });
+            });
+        });
+
+        // Ресайз окна
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            // Адаптация при повороте экрана
+            const isMobileNow = window.innerWidth < 768;
+            camera.position.z = isMobileNow ? 60 : 40;
+        });
+
+    </script>
+</body>
+
+</html>
